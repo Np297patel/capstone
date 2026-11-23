@@ -7,9 +7,8 @@
 
 | Candidate | Licence | Notes | Verdict |
 |---|---|---|---|
-| `Qwen/Qwen3-8B` | Apache-2.0 (checked) | ChatML-style template; TRL auto-patches generation markers for assistant-only loss; hybrid thinking (use non-thinking for v1) | **Default** |
-| `Qwen/Qwen2.5-7B-Instruct` | Apache-2.0 (check card) | Closest to your list; simple template | Fallback |
-| `mistralai/Mistral-7B-Instruct-v0.3` | Apache-2.0 (check card) | Older; weaker multilingual | Fallback |
+| `mistralai/Mistral-7B-Instruct-v0.3` | Apache-2.0 (check card) | High instruction quality; native `[INST]...[/INST]` chat formatting without thinking tag leaks; 32k context | **Default** |
+| `Qwen/Qwen2.5-7B-Instruct` | Apache-2.0 (check card) | Alternative multilingual base | Fallback |
 | `meta-llama/Llama-3.1-8B-Instruct` | Llama licence + AUP | AUP bars unlicensed practice of medical/health professions and presenting outputs as human; derivatives named "Llama…" | Only after legal sign-off |
 
 **Bake-off (3 days):** for each candidate run (a) zero-shot dev suite (500 MedQA-dev, 300 HealthBench-subset, tier-0 triage dev set, persona test), (b) 2k-dialogue LoRA SFT, (c) compare on composite (accuracy, safety, cost/latency). Pipeline is model-agnostic because rendering goes through `apply_chat_template`.
@@ -46,19 +45,19 @@ from peft import LoraConfig
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
-MODEL = "Qwen/Qwen3-8B"
+MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
 tok = AutoTokenizer.from_pretrained(MODEL)
 ds = load_dataset("json", data_files={"train": "data/sft/v1/train.jsonl", "validation": "data/sft/v1/val.jsonl"})
 ds = ds.select_columns(["messages"])
-model = AutoModelForCausalLM.from_pretrained(MODEL, torch_dtype=torch.bfloat16,          # `dtype=` on transformers ≥ 4.56
-                                             attn_implementation="flash_attention_2")     # "sdpa" if flash-attn unavailable
+model = AutoModelForCausalLM.from_pretrained(MODEL, torch_dtype=torch.bfloat16,
+                                             attn_implementation="flash_attention_2")
 args = SFTConfig(
-    output_dir="runs/sft-qwen3-8b-lora", seed=42,
-    num_train_epochs=2, per_device_train_batch_size=2, gradient_accumulation_steps=4,    # ×8 GPUs = 64 packed seqs
+    output_dir="runs/sft-mistral-lora", seed=42,
+    num_train_epochs=2, per_device_train_batch_size=2, gradient_accumulation_steps=4,
     learning_rate=1e-4, lr_scheduler_type="cosine", warmup_ratio=0.03, weight_decay=0.0, max_grad_norm=1.0,
     bf16=True, gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
-    max_length=4096, packing=True,                 # packing needs FlashAttention to avoid cross-example attention
-    assistant_only_loss=True,                      # needs {% generation %} template; TRL patches some (incl. Qwen3). If your
+    max_length=2048, packing=False,
+    assistant_only_loss=True,
                                                    # TRL rejects it with packing → packing=False or use masking.encode_example
     eval_strategy="steps", eval_steps=50, save_strategy="steps", save_steps=50, save_total_limit=4,
     logging_steps=10, report_to="wandb", dataset_num_proc=8,
@@ -106,7 +105,7 @@ distributed_type: FSDP
 fsdp_config:
   fsdp_version: 2
   fsdp_auto_wrap_policy: TRANSFORMER_BASED_WRAP
-  fsdp_transformer_layer_cls_to_wrap: Qwen3DecoderLayer
+  fsdp_transformer_layer_cls_to_wrap: MistralDecoderLayer
   fsdp_state_dict_type: SHARDED_STATE_DICT
   fsdp_cpu_ram_efficient_loading: true
   fsdp_offload_params: false
@@ -118,7 +117,7 @@ num_processes: 8
 ### 2.5 Launch, merge, export
 ```bash
 accelerate launch --config_file configs/accelerate/ds_zero2.yaml src/medchat/train/sft.py
-python -m medchat.train.merge --base Qwen/Qwen3-8B --adapter runs/sft-qwen3-8b-lora/checkpoint-XXX \
+python -m medchat.train.merge --base mistralai/Mistral-7B-Instruct-v0.3 --adapter runs/sft-mistral-lora/checkpoint-XXX \
        --out artifacts/medchat-sft-merged      # PeftModel.merge_and_unload(); record base revision hash
 ```
 
@@ -335,4 +334,4 @@ GRPOTrainer(model="artifacts/medchat-dpo-merged", reward_funcs=[r_judge, r_entit
 Seed 42 everywhere (sampling seed 7). Log: data manifest hash, prompt-policy version, TRL/transformers/peft/vllm versions, base-model revision SHA, adapter name `medchat-{stage}-{date}-{gitsha}`. Every checkpoint is evaluated by the same `scripts/run_eval.sh`.
 
 ## 5. References (checked 2026-10-23)
-TRL docs: SFT (`assistant_only_loss`, `packing`, `max_length`), GRPO (`loss_type`, `beta`, `use_vllm`), DPO (`loss_type` list + `loss_weights`), ORPO (`trl.experimental.orpo`) — https://huggingface.co/docs/trl · Llama AUP — https://developer.meta.com/ai/llama3/use-policy/ · Qwen3-8B card — https://huggingface.co/Qwen/Qwen3-8B · HealthChat-11K — https://arxiv.org/abs/2506.21532
+TRL docs: SFT (`assistant_only_loss`, `packing`, `max_length`), GRPO (`loss_type`, `beta`, `use_vllm`), DPO (`loss_type` list + `loss_weights`), ORPO (`trl.experimental.orpo`) — https://huggingface.co/docs/trl · Llama AUP — https://developer.meta.com/ai/llama3/use-policy/ · Mistral-7B card — https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3 · HealthChat-11K — https://arxiv.org/abs/2506.21532

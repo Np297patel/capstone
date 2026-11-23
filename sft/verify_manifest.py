@@ -97,7 +97,7 @@ def verify_entry(entry: dict, repo_root: Path) -> tuple[str | None, str]:
     if actual_hash != entry["sha256"]:
         return "CHANGED", (
             f"Hash mismatch: {rel}  "
-            f"expected={entry['sha256'][:16]}…  actual={actual_hash[:16]}…"
+            f"expected={entry['sha256'][:16]}...  actual={actual_hash[:16]}..."
         )
 
     return None, "ok"

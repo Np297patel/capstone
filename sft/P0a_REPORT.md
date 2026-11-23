@@ -145,8 +145,8 @@ typer==0.27.3  typing_extensions==4.16.0  tzdata==2026.5
 
 | Item | Value |
 |------|-------|
-| Repo ID | `Qwen/Qwen3-1.7B` |
-| Revision SHA (40-char) | `70d244cc86ccca08cf5af4e1e306ecf908b1ad5e` |
+| Repo ID | `mistralai/Mistral-7B-Instruct-v0.3` |
+| Revision SHA (40-char) | `e0bc86c23ce5aae1db576c8cca6f06f1f73af2db` |
 | License | Apache-2.0 ✅ |
 | Local directory | `sft/tokenizer_snapshot/` (git-ignored) |
 | No weight files | ✅ confirmed |
@@ -154,37 +154,37 @@ typer==0.27.3  typing_extensions==4.16.0  tzdata==2026.5
 
 ### Tokenizer Files
 
-| File | Size (bytes) | SHA-256 |
-|------|-------------|---------|
-| `config.json` | 726 | `1ddb5b89ebc90dcb417a45c213d818577e65976454d29385c8f6140771d95197` |
-| `generation_config.json` | 239 | `2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2` |
-| `LICENSE` | 11,343 | `832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e` |
-| `merges.txt` | 1,671,853 | `8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5` |
-| `tokenizer.json` | 11,422,654 | `aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4` |
-| `tokenizer_config.json` | 9,732 | `d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101` |
-| `vocab.json` | 2,776,833 | `ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910` |
+| File | Purpose |
+|------|---------|
+| `config.json` | Model architecture (MistralForCausalLM, 32 layers, GQA 32/8) |
+| `generation_config.json` | Default generation settings (bos=1, eos=2) |
+| `special_tokens_map.json` | Special token mappings (bos, eos, unk) |
+| `tokenizer.json` | Fast tokenizer definition (32,768 vocab) |
+| `tokenizer.model` | SentencePiece model |
+| `tokenizer_config.json` | Chat template ([INST]...[/INST]) and token configurations |
 
 ### config.json Values
 
 | Key | Value |
 |-----|-------|
-| `num_hidden_layers` | 28 |
-| `hidden_size` | 2048 |
-| `num_attention_heads` | 16 |
+| `architectures` | `["MistralForCausalLM"]` |
+| `num_hidden_layers` | 32 |
+| `hidden_size` | 4096 |
+| `num_attention_heads` | 32 |
 | `num_key_value_heads` | 8 |
-| `vocab_size` | 151936 |
-| `max_position_embeddings` | 40960 |
-| `tie_word_embeddings` | true |
+| `vocab_size` | 32768 |
+| `max_position_embeddings` | 32768 |
 
 ### Special Token IDs
 
 | Token | ID | Single token |
 |-------|----|-------------|
-| `<\|im_start\|>` | 151644 | ✅ |
-| `<\|im_end\|>` | 151645 | ✅ |
-| `<\|endoftext\|>` | 151643 | ✅ |
+| `<s>` (BOS) | 1 | ✅ |
+| `</s>` (EOS) | 2 | ✅ |
+| `[INST]` | 3 | ✅ |
+| `[/INST]` | 4 | ✅ |
 
-`len(tokenizer)` = **151669**
+`len(tokenizer)` = **32768**
 
 ---
 

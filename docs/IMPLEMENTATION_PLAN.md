@@ -16,13 +16,12 @@ Source of truth for design decisions: `ARCHITECTURE.md`. Change it only through 
 
 ## Approved design (summary)
 
-- **Model:** `Qwen/Qwen3-1.7B` (post-trained checkpoint, Apache-2.0), pinned to an exact revision.
-- **Method:** LoRA SFT (r=16, all linear layers) with `transformers` Trainer + PEFT on one GPU. No TRL, no RLHF/DPO.
-- **Data:** the validated CSV is read-only. A dialogue builder reconstructs complete dialogues as JSONL with dialogue-aware cleaning.
-- **Format and loss:** fixed ChatML template with one system prompt, no `<think>` blocks, loss on assistant tokens only.
-- **Splits:** by `group_id` (exact and near-duplicate clusters), so a dialogue never spans splits.
-- **Behavior supplement:** about 240 hand-reviewed dialogues (identity, escalation, uncertainty, context carry-over).
-- **Evaluation:** held-out NLL, history ablation, scripted probes, blind human rubric. Gates are frozen before the final training run.
+- **Model:** `mistralai/Mistral-7B-Instruct-v0.3` (revision `e0bc86c23ce5aae1db576c8cca6f06f1f73af2db`, Apache-2.0).
+- **Method:** LoRA / QLoRA SFT (r=16, all linear layers) with `transformers` Trainer + PEFT, followed by GRPO (Group Relative Policy Optimization) preference alignment via TRL with rule-based safety/style rewards.
+- **Data:** the validated CSV is read-only. A dialogue builder reconstructs complete dialogues as JSONL with dialogue-aware cleaning (`data/sft/v1/train.jsonl` and `val.jsonl`).
+- **Format and loss:** Mistral `[INST]...[/INST]` chat template with system prompt in the first `[INST]` block, loss on assistant tokens only (content + `</s>`).
+- **Splits:** by `dialogue_id` (90% train / 10% val), preserving complete multi-turn conversations.
+- **Evaluation:** held-out loss, safety & emergency escalation rate, persona/boilerplate absence, clinical probe benchmarks, and GRPO reward metrics.
 - **Inference:** offline `ChatSession` with the same template, whole-exchange history trimming, and a deterministic red-flag banner (regex, not a model).
 
 ## Data

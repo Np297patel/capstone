@@ -93,9 +93,9 @@ medchat/
 
 | Decision | Default | Alternatives | Revisit when |
 |---|---|---|---|
-| Base model | `Qwen/Qwen3-8B` (Apache-2.0), *instruct* checkpoint, non-thinking mode | Qwen2.5-7B-Instruct · Mistral-7B-Instruct-v0.3 (check cards) · Llama-3.x-8B-Instruct (AUP medical clause → legal first) | Phase 2.0 bake-off, or a newer Apache-2.0 7–9B release |
-| Tuning | bf16 LoRA r=64, all-linear | QLoRA (< 40 GB VRAM) · full FT (≥ 8×80 GB) | Ablation A5 shows ≥ 2-pt gap |
-| Data format | Canonical `messages` JSONL → model's own chat template (ChatML for Qwen); ShareGPT exporter | Axolotl/LLaMA-Factory ShareGPT | Toolchain change |
+| Base model | `mistralai/Mistral-7B-Instruct-v0.3` (Apache-2.0), *instruct* checkpoint, native `[INST]` formatting | Qwen2.5-7B-Instruct · Llama-3.x-8B-Instruct (AUP medical clause → legal first) | Newer Apache-2.0 7–9B release |
+| Tuning | bf16 LoRA r=64 / QLoRA NF4 (16 GB T4) | Full FT (≥ 8×80 GB) | Ablation A5 shows ≥ 2-pt gap |
+| Data format | Canonical `messages` JSONL → model's own chat template (Mistral `[INST]...[/INST]`); ShareGPT exporter | Axolotl/LLaMA-Factory ShareGPT | Toolchain change |
 | Conditioning | User-side entities + risk flags in `<clinical_context>`, with dropout | None (ablation A2) | A2 shows no gain |
 | Alignment | SFT → DPO (+ SFT term) → optional GRPO | ORPO single-stage (ablation) | DPO plateau |
 | Safety | Deterministic tier-0/crisis templates + output guards | Model-only | Never for tier-0 |
@@ -135,7 +135,7 @@ Not legal advice. Counsel must review before any release or sharing of data, wei
 | HealthChat-LMSYS | LMSYS-Chat-1M agreement: no transfer to third parties; no identifying individuals or inferring sensitive personal data | Don't redistribute; no geo/IP joins; counsel to confirm health-entity tagging of user turns is compatible; keep deletion-retrain capability |
 | HealthChat-WildChat | Your reference cites ImpACT-LR (WildChat-nontoxic); the WildChat-1M card lists ODC-BY since 2024-06-26 | Record which variant you used; attribute and cite the paper; stricter reading governs until confirmed |
 | Upstream generators (assistant turns) | GPT-3.5/4, Llama-derived models etc. may carry output terms | Include in counsel review |
-| Base model | Qwen3-8B Apache-2.0. Llama AUP bars unlicensed practice of medical/health professions and passing outputs off as human; derivatives must be named "Llama…" | Prefer Apache-2.0; Llama only after legal sign-off |
+| Base model | Mistral-7B-Instruct-v0.3 Apache-2.0. Clean open weights under Apache 2.0 without medical AUP restrictions. | Prefer Apache-2.0; Llama only after legal sign-off |
 | Teacher / judge models | API ToS may restrict training on outputs | Prefer open-weights teachers whose licence permits it |
 | Regulation | Health-information vs software-as-medical-device classification varies by jurisdiction | Regulatory review before launch; keep claims "information, not diagnosis" |
 

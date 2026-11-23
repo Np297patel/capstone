@@ -19,3 +19,9 @@ htmlcov/
 # Env manifest (contains local paths — regenerate as needed)
 # environment_manifest.json is COMMITTED (it holds revision SHA + hashes)
 # freeze.txt is COMMITTED
+
+# Training run outputs (large — save to Kaggle output or external storage)
+runs/
+*.log
+test_results.txt
+pip_install.log

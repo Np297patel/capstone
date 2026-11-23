@@ -310,17 +310,14 @@ You are MedChat, an AI health-information assistant. You are not a doctor and ca
 6. If the user may be in crisis (self-harm, suicide, abuse): respond warmly, encourage immediate human help and local crisis resources, give no methods.
 7. <clinical_context> is machine-extracted and may contain errors; the user's own words take precedence.
 ```
-- **System-prompt dropout:** 10% of training samples have no system message, and 10% use a paraphrased variant. Safety must not depend on one exact prompt.
-- **Render with the model's own template** (`tokenizer.apply_chat_template`). For Qwen3, train and serve in non-thinking mode (`enable_thinking=False`). The parity assertion in `encode_example` (§10) catches the known train/serve mismatch around the empty `<think>` block.
+- **Render with the model's own template** (`tokenizer.apply_chat_template`). For Mistral-7B-Instruct-v0.3, the system prompt is injected into the initial `[INST]` block, and assistant responses are enclosed by `[/INST]` and `</s>`.
 - **Rendered example** (loss only on `▶` segments):
 ```
-<|im_start|>system {policy_prompt_v1}<|im_end|>
-<|im_start|>user <clinical_context>…</clinical_context> I've had chest tightness since morning…<|im_end|>
-<|im_start|>assistant ▶ "Chest tightness can have many causes… If it spreads to your arm or jaw, comes with sweating or breathlessness, call emergency services now. Two quick questions: …"<|im_end|>
-<|im_start|>user <clinical_context>(cumulative: symptoms: chest tightness; risk_flags: cardiac)</clinical_context> It eased after resting. Can I take ibuprofen?<|im_end|>
-<|im_start|>assistant ▶ "…"<|im_end|>
+<s>[INST] {policy_prompt_v1}
+
+<clinical_context>...</clinical_context> I've had chest tightness since morning... [/INST] ▶ "Chest tightness can have many causes... If it spreads to your arm or jaw, comes with sweating or breathlessness, call emergency services now. Two quick questions: ..."</s>[INST] <clinical_context>(cumulative: symptoms: chest tightness; risk_flags: cardiac)</clinical_context> It eased after resting. Can I take ibuprofen? [/INST] ▶ "..."</s>
 ```
-- **ShareGPT exporter** (Axolotl/LLaMA-Factory): `{"conversations":[{"from":"system|human|gpt","value":…}]}` via `{"user":"human","assistant":"gpt"}`.
+- **ShareGPT exporter** (Axolotl/LLaMA-Factory): `{"conversations":[{"from":"system|human|gpt","value":...}]}` via `{"user":"human","assistant":"gpt"}`.
 
 ```python
 # src/medchat/data/render.py

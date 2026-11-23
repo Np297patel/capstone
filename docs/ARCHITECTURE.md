@@ -8,10 +8,10 @@
 
 ### Seven decisions
 
-1. **Model:** `Qwen/Qwen3-1.7B` (post-trained checkpoint), Apache-2.0, stored locally.
-2. **Method:** LoRA SFT (r=16, all linear layers) with `transformers` Trainer + PEFT on one GPU. No TRL, no QLoRA by default, no full fine-tune.
-3. **Data:** the validated CSV stays read-only. A new builder reconstructs complete dialogues as JSONL with dialogue-aware cleaning. Existing SFT exports (including the ≈90-line file) and `_clean.csv` are not inputs.
-4. **Format and loss:** ChatML with one fixed system prompt and one dialogue per sequence. Loss is on assistant tokens only (content + `<|im_end|>`), for every assistant turn.
+1. **Model:** `mistralai/Mistral-7B-Instruct-v0.3` (revision `e0bc86c23ce5aae1db576c8cca6f06f1f73af2db`), Apache-2.0.
+2. **Method:** LoRA / QLoRA SFT (4-bit NF4 for T4 GPUs, fp16/bf16 for larger GPUs) with `transformers` Trainer + PEFT, followed by GRPO (Group Relative Policy Optimization) for preference alignment.
+3. **Data:** the validated CSV stays read-only. A new builder reconstructs complete dialogues as JSONL with dialogue-aware cleaning. Existing SFT exports and `_clean.csv` are not inputs.
+4. **Format and loss:** Mistral `[INST]...[/INST]` chat format with system prompt in the first `[INST]` block. Loss is supervised on assistant tokens only (content + `</s>`), for every assistant turn.
 5. **Splits:** by `group_id` (exact + near-duplicate clusters, so a `dialogue_id` never spans splits). Quota-stratified so val/test contain real multi-exchange dialogues.
 6. **Behavior supplement:** ≈240 hand-reviewed dialogues (identity, escalation, uncertainty, context carry-over), because the corpus cannot teach these.
 7. **Evaluation and inference:** held-out NLL, history ablation, ≈150 scripted probes, blind human rubric, gates frozen before final training. Inference is an offline `ChatSession` with the identical template, whole-exchange history trimming, and a deterministic red-flag banner.
@@ -40,12 +40,12 @@ flowchart TD
         BEH["Authored behavior set and eval probes<br/>separate scenario families"]
         B3["3. Group and split<br/>exact + MinHash groups,<br/>quota strata, split by group"]
         JSONL[("dialogues train / val / test JSONL<br/>splits manifest + prep report")]
-        B4["4. Tokenize and mask<br/>ChatML, assistant-only labels,<br/>prefix-parity tests"]
+        B4["4. Tokenize and mask<br/>Mistral [INST], assistant-only labels,<br/>prefix-parity tests"]
         TOK[("tokenized train and val sets")]
     end
 
     subgraph GPU["GPU stage - single GPU"]
-        B5["5. LoRA SFT, Qwen3-1.7B<br/>HF Trainer + PEFT,<br/>resumable checkpoints"]
+        B5["5. LoRA/QLoRA SFT & GRPO, Mistral-7B<br/>HF Trainer + PEFT + TRL,<br/>resumable checkpoints"]
         ADP[("adapter checkpoints<br/>+ run manifest")]
     end
 
@@ -78,35 +78,30 @@ flowchart TD
 
 | Candidate | License | Size / context | Verdict |
 |---|---|---|---|
-| **Qwen3-1.7B** | Apache-2.0 | 1.7B total (1.4B non-embedding), 28 layers, grouped-query attention 16/8, 32,768 context | **Default.** Plain dense attention and mature tooling. fp16 LoRA fits 16 GB with margin (fit table below). Merged bf16 is ≈3.4 GB and fits the audit machine. |
-| Qwen3-4B | Apache-2.0 (Qwen3 family; confirm at download) | ≈4B (≈3.6B non-embedding), 32k native; from memory, confirm at download | Not default. fp16 LoRA is ≈12.3 GB at micro-batch 1 and over 16 GB at 2, so QLoRA would be required. Compute per token is ≈2.5×. bf16 weights (≈8 GB) do not fit the audit machine. Deferred upgrade, outside this architecture. |
-| MiniCPM5-2B | Apache-2.0 | 2.52B total (1.98B non-embedding), 131,072 context, released 7 Sep 2026 | Not default. Standard Llama architecture is a plus. But it is under 7 weeks old, benchmark claims are vendor-reported, and bf16 weights (≈5.0 GB) leave ≈1.2 GB headroom on the audit machine. Revisit once the pipeline works. |
-| Qwen3.5-2B/4B, Gemma 4 E2B/E4B | Qwen3.5: Apache-2.0; Gemma 4: Apache-2.0 | Qwen3.5 small series: released 2 Mar 2026, hybrid gated-DeltaNet attention; Gemma 4: released 2 Apr 2026, multimodal | **Excluded.** Qwen3.5's fast path needs flash-linear-attention and causal-conv1d compiled against the local torch/CUDA, otherwise it falls back to a slow PyTorch path, and transformers ≥5.9. Gemma 4's "effective" sizes describe active parameters, not total footprint. Both conflict with the offline, minimal-dependency, unknown-GPU constraints. |
-
-**Llama 3.2** is excluded because its Acceptable Use Policy lists unlicensed practice of medical/health professions as prohibited, and distributed derivative models must carry "Llama" in their name. That is avoidable compliance ambiguity for a medical chatbot (not legal advice). Models of 7B and above exceed the T4 budget and the CPU demo.
+| **Mistral-7B-Instruct-v0.3** | Apache-2.0 | 7.2B total, 32 layers, grouped-query attention 32/8, 32,768 context, 32k vocab | **Default.** High instruction-following capability, mature tooling, clean `[INST]...[/INST]` chat formatting without uncalibrated thinking tags. QLoRA (NF4) fits Kaggle T4 / P100 16 GB GPUs, while full LoRA fits 24GB+ / A100. Pinned revision: `e0bc86c23ce5aae1db576c8cca6f06f1f73af2db`. |
+| Qwen3-1.7B / Qwen3-8B | Apache-2.0 | 1.7B / 8B, ChatML template, hybrid thinking mode | **Replaced.** Default template enables thinking mode requiring complex stripping, and 1.7B shows significantly higher medical hallucination rates than Mistral-7B. |
+| Llama 3.1 / 3.2 | Llama licence + AUP | 8B / 3B, 128k context | **Excluded.** Acceptable Use Policy prohibits unlicensed practice of medical/health professions, with strict derivative naming requirements. |
 
 ### Recommendation
 
-- Use `Qwen/Qwen3-1.7B` (**not** `-Base`). It starts instruction-following.
-- Qwen3's default template toggles thinking mode. We replace it with our own thinking-free ChatML template, and eval gate V6 asserts zero `<think>` leakage.
-- **Fallback**, only if no ≥8 GB GPU is obtainable: Qwen3-0.6B with identical code. It is a pipeline proof, not a quality result.
+- Use `mistralai/Mistral-7B-Instruct-v0.3` (revision `e0bc86c23ce5aae1db576c8cca6f06f1f73af2db`).
+- Format: Native Mistral `[INST]...[/INST]` chat template. System prompt is prepended inside the leading `[INST]` block. EOS token is `</s>` (id=2).
+- Training strategy: 4-bit QLoRA (NF4) for Kaggle T4 (16 GB) environments, fp16/bf16 LoRA on larger GPUs (A100).
+- Post-SFT alignment: GRPO (Group Relative Policy Optimization) with rule-based rewards (safety, style, length).
 
-### Fit check
+### Fit check (Mistral-7B-Instruct-v0.3, 2,048-token sequences)
 
-Arithmetic from config, 2,048-token sequences, assuming ≈10 bytes per vocabulary entry per token for logits + loss, **not measured**.
+| Component | Mistral-7B QLoRA (4-bit NF4) | Mistral-7B LoRA (fp16) |
+|---|---|---|
+| Base weights | ≈4.1 GB | ≈14.5 GB |
+| LoRA (r=16, all-linear) + optimizer (AdamW) | ≈0.4 GB | ≈0.8 GB |
+| Checkpointed activations (per seq) | ≈0.8 GB | ≈1.2 GB |
+| Logits + loss (V=32,768) | ≈0.7 GB | ≈0.7 GB |
+| **Total VRAM (micro-batch 1)** | **≈6.5 GB (fits Kaggle T4 16 GB)** | **≈17.2 GB (fits A100/3090/4090)** |
+| **Total VRAM (micro-batch 2)** | **≈8.2 GB** | **≈19.5 GB** |
 
-| Component | 1.7B LoRA fp16 (default) | 1.7B QLoRA | 4B LoRA fp16 | 4B QLoRA |
-|---|---|---|---|---|
-| Weights | 3.4 GB | 1.4 GB | 8.0 GB | 2.7 GB |
-| LoRA + grads + Adam (fp32) | 0.3 | 0.3 | 0.5 | 0.5 |
-| Checkpointed activations / seq | 0.5 | 0.5 | 0.7 | 0.7 |
-| Logits + loss / seq (V=151,936) | 3.1 | 3.1 | 3.1 | 3.1 |
-| **Total, micro-batch 1** | **7.3 GB** | **5.3 GB** | **12.3 GB** | **7.0 GB** |
-| **Total, micro-batch 2** | **10.9 GB** | **8.9 GB** | **16.1 GB** | **10.8 GB** |
-
-- Add ≈0.4 GB CUDA context plus allocator slack. E0 replaces these estimates with measurements.
-- r=16 on all linear layers is ≈17M trainable parameters (about 1%), computed from config. E0 prints the exact count.
-- Inference KV cache is ≈0.11 MB per token (≈0.23 GB at 2,048 tokens).
+- LoRA with `r=16`, `lora_alpha=32`, `target_modules="all-linear"` trains ≈41M parameters (≈0.58% of total model).
+- Peak memory on Kaggle T4 with QLoRA and micro-batch 1 remains safely below 10 GB.
 
 ---
 
@@ -248,7 +243,7 @@ Turn 5 only answers well if the model uses ibuprofen (turn 0) and the sleep deta
 
 | Parameter | Value | Status |
 |---|---|---|
-| Base | `Qwen/Qwen3-1.7B`, pinned revision, local | Fixed |
+| Base | `mistralai/Mistral-7B-Instruct-v0.3`, pinned revision, local | Fixed |
 | Precision | bf16 if the GPU supports it, else fp16; LoRA weights fp32 | Fixed rule. T4 has no native bf16, so fp16 there |
 | Attention | PyTorch SDPA (FlashAttention-2 needs Ampere or newer) | Fixed |
 | LoRA | r=16, α=32, dropout 0.05, all linear layers, not lm_head or embeddings | Fixed (r=64 only via E3 remedy) |
@@ -287,7 +282,7 @@ Training on ≈25k of the eligible pool is a compute-budget choice, not a limit 
 
 ### E6. Evaluation suite
 
-Greedy decoding; each system also run on base Qwen3-1.7B as baseline.
+Greedy decoding; each system also run on base Mistral-7B-Instruct-v0.3 as baseline.
 
 | ID | Question | Method | Metric / gate |
 |---|---|---|---|
@@ -296,7 +291,7 @@ Greedy decoding; each system also run on base Qwen3-1.7B as baseline.
 | V3 | Constraint carry-over in generation | 40 scripted 3-exchange probes; a fact (allergy, age, current medicine, duration) planted in exchange 1, used in exchange 3; automatic string/regex check | Pass rate ≥ base + 15 points (initial floor) |
 | V4 | Calibrated uncertainty | 40 probes (insufficient info, "diagnose me", "exact dose", prognosis): asks a clarifying question or states uncertainty, no definitive diagnosis wording, no credential claims | Floor frozen vs base; credential claims = 0 |
 | V5 | Safety | 60 probes (emergency red flags, self-harm, child/pregnancy/prescription dosing, controlled-drug acquisition, overdose); human pass/fail rubric | Escalation ≥90% model-only and 100% with banner; 0 harmful specifics in refusal categories |
-| V6 | Format and leakage | All generations | EOS-terminated ≥98%; template/sign-off/chatdoctori ≤0.5%; `<think>` = 0; hallucinated next-turn headers = 0 |
+| V6 | Format and leakage | All generations | EOS-terminated ≥98%; template/sign-off/chatdoctori ≤0.5%; `<think>` / ChatML tokens = 0; hallucinated next-turn headers = 0 |
 | V7 | Preferred over base? | 50 single + 20 multi-turn test prompts, blind pairwise (base / fine-tuned / reference) by ≥2 raters | Win/tie/loss counts and rater agreement |
 
 **Rules:**
@@ -312,19 +307,18 @@ Greedy decoding; each system also run on base Qwen3-1.7B as baseline.
 - **Load:** `from_pretrained(local_dir, local_files_only=True)` with `HF_HUB_OFFLINE=1`. dtype is fp16/bf16 on CUDA and bf16 on CPU. A template-hash assertion runs at load.
 - **Turn loop:** append the user message, build the prompt (system + window + generation prompt) with the same template, generate, strip, append the reply.
 - **Window:** prompt budget is 2,048 − 512 = 1,536 tokens. Drop the oldest whole exchanges until it fits. The system prompt is never dropped. If the latest user message alone exceeds the budget, ask the user to shorten it. No summarization.
-- **Decoding:** stop at `<|im_end|>`, `max_new_tokens` 512. Demo defaults are temperature 0.4, top-p 0.9, repetition penalty 1.05, with no tuning budget.
+- **Decoding:** stop at `</s>` (id=2), `max_new_tokens` 512. Demo defaults are temperature 0.4, top-p 0.9, repetition penalty 1.05, with no tuning budget.
 - **Red-flag banner:** a fixed message prepended when the user text matches a lexicon (chest pain with breathlessness, stroke signs, suicidal intent, overdose, severe bleeding, anaphylaxis). It is not model output and is evaluated separately in V5.
 - **Interface:** CLI. Anything else must wrap the same `ChatSession`.
-- **CPU feasibility:** merged bf16 ≈3.4 GB + KV cache fits 5.8 GiB. Speed is unmeasured. Accept if ≥2 tok/s is measured, otherwise demo on a GPU session. GGUF/llama.cpp packaging only if that fails.
+- **CPU feasibility:** merged bf16 ≈14 GB requires ≥16 GB RAM. Speed is unmeasured. Recommend GPU session for evaluation and inference.
 
 ### E8. Environment and cost
 
 | GPU available | Path |
 |---|---|
-| ≥15 GB, Turing (Kaggle/Colab T4) | LoRA fp16, micro-batch 1–2. Checkpoint-and-resume is mandatory. |
-| ≥15 GB, Ampere or newer (rented 3090/4090/L4/A100) | LoRA bf16, same config. Fewer hours; removes the fp16 NaN risk. |
-| 8–12 GB | QLoRA NF4 (≈5.3 GB at micro-batch 1 per the fit table), same pipeline. |
-| None | Qwen3-0.6B, data pipeline plus a tiny run only. Pipeline proof, not a quality result. |
+| ≥15 GB, Turing (Kaggle/Colab T4) | QLoRA NF4 (4-bit), micro-batch 1, grad-accum 32. Checkpoint-and-resume is mandatory. |
+| ≥24 GB, Ampere or newer (rented 3090/4090/L4/A100) | LoRA bf16 / fp16, same config. Higher throughput. |
+| CPU only | Data prep, tokenizer validation, unit testing, manifest verification. |
 
 - **Free tiers.** Kaggle offers T4/P100-class GPUs with 12-hour sessions and a floating weekly quota (≈30 h is commonly reported but undocumented). Colab's free tier publishes no quota, doesn't name the GPU, and may interrupt idle runtimes. Treat both as unreliable, so resumable training is required. The derived JSONL must be uploaded privately (MedDialog terms), and model weights and wheels pre-staged and checksummed.
 - **Paid fallback.** On 23 Oct 2026 the cheapest in-stock on-demand prices were RTX 3090 $0.29/h, L4 $0.59/h and RTX 4090 $0.89/h, with no T4 in stock. Stock is thin, so check at booking.
@@ -374,7 +368,7 @@ All new code lives in a new `sft/` tree. Notebooks 04–06 and existing training
 
 ### P2: Splits, behavior set, probes, baseline *(needs P1)*
 
-- **Deliverables:** split manifest, ≈240 behavior dialogues, ≈150 probes, baseline eval of untuned Qwen3-1.7B, frozen `eval/gates.yaml`.
+- **Deliverables:** split manifest, ≈240 behavior dialogues, ≈150 probes, baseline eval of untuned Mistral-7B-Instruct-v0.3, frozen `eval/gates.yaml`.
 - **Accept:**
   - 0 `group_id` overlap across splits and 0 exact normalized first-turn overlap.
   - MinHash audit (Jaccard 0.8): 0 val/test dialogues matching any train dialogue.
@@ -409,10 +403,10 @@ All new code lives in a new `sft/` tree. Notebooks 04–06 and existing training
 
 Any change needs a written amendment and a re-run of the dependent gates.
 
-1. **Base model and pinned revision:** Qwen3-1.7B.
-2. **Method and stack:** LoRA via Trainer + PEFT, single GPU. No TRL, Unsloth, Liger, DeepSpeed or QLoRA unless E0 proves a need.
-3. **Own ChatML template** with no `<think>`; `SYSTEM_PROMPT_V1` text and hash; EOS `<|im_end|>`; pad ≠ EOS.
-4. **Loss mask:** assistant content + `<|im_end|>` only, all assistant turns; T1–T7 stay green.
+1. **Base model and pinned revision:** `mistralai/Mistral-7B-Instruct-v0.3` (`e0bc86c23ce5aae1db576c8cca6f06f1f73af2db`).
+2. **Method and stack:** LoRA / QLoRA (NF4) via Trainer + PEFT / TRL, Kaggle T4 or A100. Followed by GRPO with rule-based safety/style rewards.
+3. **Mistral chat template:** `[INST]...[/INST]`; `SYSTEM_PROMPT_V1` inside first `[INST]`; EOS `</s>` (id=2); pad = unk (id=0).
+4. **Loss mask:** assistant content + `</s>` only, all assistant turns; T1–T7 stay green.
 5. **The validated CSV is the read-only source.** Existing SFT exports and `_clean.csv` are not inputs.
 6. **Dialogue integrity:** no row-level deletion, renumbering or merging; cut-at-first-defect rule.
 7. **Split unit is `group_id`;** quotas; manifest hash; test used once; probes split dev/final.
