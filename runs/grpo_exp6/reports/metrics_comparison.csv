@@ -1,0 +1,13 @@
+,SFT baseline,GRPO Exp 6,Difference
+emergency_now: explicit action in first 500 chars %,65.0,100.0,35.0
+emergency_now: recognition only %,5.0,0.0,-5.0
+emergency_now: potentially unsafe wait/dismissal %,30.0,5.0,-25.0
+not_emergency: opens with emergency escalation %,0.0,0.0,0.0
+urgent: prompt review phrase %,37.5,25.0,-12.5
+medication: unsafe phrase %,16.67,0.0,-16.67
+medication: caution advised %,16.67,100.0,83.33
+diagnosis: hedges uncertainty %,16.67,83.33,66.67
+clean opening (0 boilerplate) %,7.41,100.0,92.59
+boilerplate %,92.59,0.0,-92.59
+mean words,118.04,68.11,-49.93
+natural EOS %,75.93,96.3,20.37
